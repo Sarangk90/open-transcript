@@ -78,8 +78,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Local Whisper functions
   transcribeLocalWhisper: (audioBlob, options) =>
     ipcRenderer.invoke("transcribe-local-whisper", audioBlob, options),
-  checkWhisperInstallation: () =>
-    ipcRenderer.invoke("check-whisper-installation"),
+  checkWhisperInstallation: (forceCheck = false) =>
+    ipcRenderer.invoke("check-whisper-installation", forceCheck),
+  checkMlxInstallation: (forceCheck = false) =>
+    ipcRenderer.invoke("check-mlx-installation", forceCheck),
   installWhisper: () => ipcRenderer.invoke("install-whisper"),
   onWhisperInstallProgress: registerListener("whisper-install-progress"),
   downloadWhisperModel: (modelName) =>
@@ -163,9 +165,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   llamaCppUninstall: () => ipcRenderer.invoke("llama-cpp-uninstall"),
   
   // Debug logging for reasoning pipeline
-  logReasoning: (stage, details) => 
+  logReasoning: (stage, details) =>
     ipcRenderer.invoke("log-reasoning", stage, details),
-  
+
+  // Log timing messages to terminal
+  logToTerminal: (message) =>
+    ipcRenderer.invoke("log-to-terminal", message),
+
   // Remove all listeners for a channel
   removeAllListeners: (channel) => {
     ipcRenderer.removeAllListeners(channel);

@@ -124,6 +124,7 @@ Models stored in `~/.cache/whisper/`:
 - small: 244MB (better quality)
 - medium: 769MB (high quality)
 - large: 1.5GB (best quality)
+- large-v3: 1.5GB (latest large model, best accuracy)
 - turbo: 809MB (fast with good quality)
 
 ### 4. Database Schema

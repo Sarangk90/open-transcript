@@ -1,16 +1,85 @@
 const modelManager = require("../helpers/modelManagerBridge").default;
 const debugLogger = require("../helpers/debugLogger");
 
-class LocalReasoningService {
+// Use native fetch if available (Node 18+), otherwise polyfill
+const fetch = globalThis.fetch || require('node-fetch');
+
+class OllamaClient {
   constructor() {
-    this.isProcessing = false;
+    this.baseUrl = "http://localhost:11434";
   }
 
   async isAvailable() {
     try {
-      // Check if llama.cpp is installed
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+      const response = await fetch(`${this.baseUrl}/api/tags`, {
+        method: "GET",
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async generate(model, prompt, options = {}) {
+    // Add system prompt to disable thinking for Qwen models
+    const systemPrompt = model.includes('qwen')
+      ? "You are a helpful AI assistant. Provide direct, concise responses without showing your thinking process. Do not include <think> tags or reasoning steps. Just give the final answer."
+      : "You are a helpful AI assistant.";
+
+    const response = await fetch(`${this.baseUrl}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt,
+        system: systemPrompt,
+        stream: false,
+        options: {
+          temperature: options.temperature || 0.7,
+          num_predict: options.maxTokens || 500
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    let response_text = data.response || "";
+
+    // Strip thinking tags if they somehow still appear
+    if (response_text.includes('<think>')) {
+      response_text = response_text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    }
+
+    return response_text;
+  }
+}
+
+class LocalReasoningService {
+  constructor() {
+    this.isProcessing = false;
+    this.ollamaClient = new OllamaClient();
+  }
+
+  async isAvailable() {
+    try {
+      // Check Ollama first
+      const ollamaAvailable = await this.ollamaClient.isAvailable();
+      if (ollamaAvailable) {
+        return true;
+      }
+
+      // Fall back to llama.cpp
       await modelManager.ensureLlamaCpp();
-      
+
       // Check if at least one model is downloaded
       const models = await modelManager.getAllModels();
       return models.some(model => model.isDownloaded);
@@ -62,10 +131,30 @@ class LocalReasoningService {
         modelId,
         config: inferenceConfig
       });
-      
-      // Run inference
-      const result = await modelManager.runInference(modelId, reasoningPrompt, inferenceConfig);
-      
+
+      let result;
+
+      // Check if this is an Ollama model (contains colon like "qwen3:4b")
+      if (modelId.includes(':')) {
+        debugLogger.logReasoning("LOCAL_BRIDGE_USING_OLLAMA", {
+          modelId,
+          ollamaAvailable: await this.ollamaClient.isAvailable()
+        });
+
+        const ollamaAvailable = await this.ollamaClient.isAvailable();
+        if (ollamaAvailable) {
+          result = await this.ollamaClient.generate(modelId, reasoningPrompt, {
+            temperature: inferenceConfig.temperature,
+            maxTokens: inferenceConfig.maxTokens
+          });
+        } else {
+          throw new Error(`Ollama is not running. Please start Ollama to use model: ${modelId}`);
+        }
+      } else {
+        // Use llama.cpp for GGUF models
+        result = await modelManager.runInference(modelId, reasoningPrompt, inferenceConfig);
+      }
+
       const processingTime = Date.now() - startTime;
       
       debugLogger.logReasoning("LOCAL_BRIDGE_SUCCESS", {

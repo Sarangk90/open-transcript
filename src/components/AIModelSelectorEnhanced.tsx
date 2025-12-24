@@ -326,7 +326,7 @@ export default function AIModelSelectorEnhanced({
   }, [isCustomBaseDirty, customModelOptions]);
 
   const cloudProviders = ['openai', 'anthropic', 'gemini', 'custom'];
-  const localProviders = modelRegistry.getAllProviders().map((p) => p.id);
+  const localProviders = ['ollama', ...modelRegistry.getAllProviders().map((p) => p.id)];
 
   const openaiModelOptions = useMemo<CloudModelOption[]>(() => {
     const iconPath = getProviderIconPath('openai');
@@ -513,10 +513,20 @@ export default function AIModelSelectorEnhanced({
   const handleLocalProviderChange = (provider: string) => {
     setSelectedLocalProvider(provider);
     setLocalReasoningProvider(provider);
+
     // Update model to first available
-    const providerData = modelRegistry.getProvider(provider);
-    if (providerData?.models?.length > 0) {
-      setReasoningModel(providerData.models[0].id);
+    if (provider === 'ollama') {
+      // Handle Ollama models from REASONING_PROVIDERS
+      const ollamaProvider = REASONING_PROVIDERS.ollama;
+      if (ollamaProvider?.models?.length > 0) {
+        setReasoningModel(ollamaProvider.models[0].value);
+      }
+    } else {
+      // Handle llama.cpp models from ModelRegistry
+      const providerData = modelRegistry.getProvider(provider);
+      if (providerData?.models?.length > 0) {
+        setReasoningModel(providerData.models[0].id);
+      }
     }
   };
 
@@ -821,7 +831,9 @@ export default function AIModelSelectorEnhanced({
                 <div className="flex bg-gray-50 border-b border-gray-200 overflow-x-auto">
                   {localProviders.map((provider) => {
                     const isSelected = selectedLocalProvider === provider;
-                    const providerData = modelRegistry.getProvider(provider);
+                    const providerData = provider === 'ollama'
+                      ? REASONING_PROVIDERS.ollama
+                      : modelRegistry.getProvider(provider);
                     return (
                       <button
                         key={provider}
@@ -846,13 +858,57 @@ export default function AIModelSelectorEnhanced({
                 {/* Local Model List with Download */}
                 <div className="p-4">
                   <div className="space-y-3">
-                    <h4 className="text-sm font-medium text-gray-700">Available Models</h4>
+                    <h4 className="text-sm font-medium text-gray-700">
+                      {selectedLocalProvider === 'ollama' ? 'Ollama Models' : 'Available Models'}
+                    </h4>
                     {(() => {
+                      // Handle Ollama separately (no downloads needed)
+                      if (selectedLocalProvider === 'ollama') {
+                        const ollamaProvider = REASONING_PROVIDERS.ollama;
+                        if (!ollamaProvider?.models || ollamaProvider.models.length === 0) {
+                          return <p className="text-sm text-gray-500">No Ollama models configured</p>;
+                        }
+
+                        return (
+                          <div className="space-y-2">
+                            {ollamaProvider.models.map((model: any) => {
+                              const isSelected = reasoningModel === model.value;
+
+                              return (
+                                <div
+                                  key={model.value}
+                                  onClick={() => setReasoningModel(model.value)}
+                                  className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${
+                                    isSelected
+                                      ? 'border-purple-500 bg-purple-50'
+                                      : 'border-gray-200 hover:border-purple-300 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <h5 className="font-medium text-gray-900">{model.label}</h5>
+                                        {isSelected && (
+                                          <Check className="w-4 h-4 text-purple-600" />
+                                        )}
+                                      </div>
+                                      <p className="text-sm text-gray-600 mt-1">{model.description}</p>
+                                      <p className="text-xs text-green-600 mt-1">✓ Available via Ollama</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      }
+
+                      // Handle llama.cpp models (need download)
                       const provider = modelRegistry.getProvider(selectedLocalProvider);
                       if (!provider || !provider.models) {
                         return <p className="text-sm text-gray-500">No models available for this provider</p>;
                       }
-                      
+
                       return (
                         <div className="space-y-2">
                           {provider.models.map((model) => {

@@ -631,12 +631,49 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                         </p>
                       </div>
                     ) : (
-                      <Button
-                        onClick={whisperHook.installWhisper}
-                        className="w-full"
-                      >
-                        Install Whisper
-                      </Button>
+                      <div className="space-y-3">
+                        <Button
+                          onClick={whisperHook.installWhisper}
+                          className="w-full"
+                        >
+                          Install Whisper
+                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 text-purple-600"
+                            onClick={() => whisperHook.checkWhisperInstallation(true)}
+                          >
+                            Re-check Installation
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="flex-1 text-gray-600"
+                            onClick={() =>
+                              showConfirmDialog({
+                                title: "Skip Whisper Installation?",
+                                description:
+                                  "If Whisper is already installed on your system, you can skip this step. The app will attempt to use your existing installation. You can also switch to Cloud mode later if needed.",
+                                confirmText: "Skip & Continue",
+                                cancelText: "Go Back",
+                                onConfirm: () => {
+                                  // Manually mark as installed to proceed
+                                  whisperHook.checkWhisperInstallation();
+                                  // Force proceed by moving to next step
+                                  nextStep();
+                                },
+                              })
+                            }
+                          >
+                            Skip Installation
+                          </Button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                          Already installed Whisper manually? Click "Re-check" or "Skip".
+                        </p>
+                      </div>
                     )}
                   </div>
                 ) : (

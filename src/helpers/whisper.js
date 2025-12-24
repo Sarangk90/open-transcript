@@ -12,10 +12,13 @@ class WhisperManager {
   constructor() {
     this.pythonCmd = null;
     this.whisperInstalled = null;
+    this.mlxInstalled = null;
+    this.useMlx = false; // Use MLX (GPU) by default if available
     this.isInitialized = false;
     this.currentDownloadProcess = null;
     this.pythonInstaller = new PythonInstaller();
     this.cachedFFmpegPath = null;
+    this.cachedFFmpegAvailability = null; // Cache FFmpeg availability check result
   }
 
   sanitizeErrorMessage(message = "") {
@@ -60,8 +63,21 @@ class WhisperManager {
     return formatted;
   }
 
-  getWhisperScriptPath() {
-    // In production, the file is unpacked from ASAR
+  getWhisperScriptPath(forTranscription = false) {
+    // Use official MLX bridge for all operations (transcription + model management) when MLX is available
+    if (this.useMlx && this.mlxInstalled?.installed) {
+      if (process.env.NODE_ENV === "development") {
+        return path.join(__dirname, "..", "..", "whisper_bridge_mlx_official.py");
+      } else {
+        return path.join(
+          process.resourcesPath,
+          "app.asar.unpacked",
+          "whisper_bridge_mlx_official.py"
+        );
+      }
+    }
+
+    // Fallback to standard Whisper bridge when MLX is not available
     if (process.env.NODE_ENV === "development") {
       return path.join(__dirname, "..", "..", "whisper_bridge.py");
     } else {
@@ -78,6 +94,15 @@ class WhisperManager {
     try {
       await this.findPythonExecutable();
       await this.checkWhisperInstallation();
+
+      // Check for MLX GPU acceleration (non-blocking)
+      try {
+        await this.checkMlxInstallation();
+      } catch (mlxError) {
+        debugLogger.log('MLX not available, using CPU:', mlxError.message);
+        // Not critical - continue with CPU-only mode
+      }
+
       this.isInitialized = true;
     } catch (error) {
       // Whisper not available at startup is not critical
@@ -86,36 +111,63 @@ class WhisperManager {
   }
 
   async transcribeLocalWhisper(audioBlob, options = {}) {
+    const startTime = Date.now();
+    console.log('[TIMING:NODE] transcribeLocalWhisper() started');
+
     debugLogger.logWhisperPipeline('transcribeLocalWhisper - start', {
       options,
       audioBlobType: audioBlob?.constructor?.name,
       audioBlobSize: audioBlob?.byteLength || audioBlob?.size || 0
     });
-    
+
     // First check if FFmpeg is available
+    const ffmpegStartTime = Date.now();
     const ffmpegCheck = await this.checkFFmpegAvailability();
+    const ffmpegCheckTime = Date.now() - ffmpegStartTime;
+    console.log(`[TIMING:NODE]   - FFmpeg availability check: ${ffmpegCheckTime}ms`);
     debugLogger.logWhisperPipeline('FFmpeg availability check', ffmpegCheck);
-    
+
     if (!ffmpegCheck.available) {
       debugLogger.error('FFmpeg not available', ffmpegCheck);
       throw new Error(`FFmpeg not available: ${ffmpegCheck.error || 'Unknown error'}`);
     }
-    
+
+    const tempFileStartTime = Date.now();
     const tempAudioPath = await this.createTempAudioFile(audioBlob);
+    const tempFileTime = Date.now() - tempFileStartTime;
+    console.log(`[TIMING:NODE]   - Temp file creation: ${tempFileTime}ms`);
+
     const model = options.model || "base";
     const language = options.language || null;
 
     try {
+      const processStartTime = Date.now();
       const result = await this.runWhisperProcess(
         tempAudioPath,
         model,
         language
       );
-      return this.parseWhisperResult(result);
+      const processTime = Date.now() - processStartTime;
+      console.log(`[TIMING:NODE]   - runWhisperProcess(): ${processTime}ms`);
+
+      const parseStartTime = Date.now();
+      const parsed = this.parseWhisperResult(result);
+      const parseTime = Date.now() - parseStartTime;
+      console.log(`[TIMING:NODE]   - parseWhisperResult(): ${parseTime}ms`);
+
+      const totalTime = Date.now() - startTime;
+      console.log(`[TIMING:NODE] ✅ transcribeLocalWhisper() completed in ${totalTime}ms`);
+
+      return parsed;
     } catch (error) {
+      const errorTime = Date.now() - startTime;
+      console.log(`[TIMING:NODE] ❌ transcribeLocalWhisper() failed after ${errorTime}ms: ${error.message}`);
       throw error;
     } finally {
+      const cleanupStartTime = Date.now();
       await this.cleanupTempFile(tempAudioPath);
+      const cleanupTime = Date.now() - cleanupStartTime;
+      console.log(`[TIMING:NODE]   - Cleanup: ${cleanupTime}ms`);
     }
   }
 
@@ -229,8 +281,11 @@ class WhisperManager {
   }
 
   async runWhisperProcess(tempAudioPath, model, language) {
+    const startTime = Date.now();
+    console.log(`[TIMING:NODE] runWhisperProcess() started (model: ${model})`);
+
     const pythonCmd = await this.findPythonExecutable();
-    const whisperScriptPath = this.getWhisperScriptPath();
+    const whisperScriptPath = this.getWhisperScriptPath(true); // true = for transcription
 
     if (!fs.existsSync(whisperScriptPath)) {
       throw new Error(`Whisper script not found at: ${whisperScriptPath}`);
@@ -243,6 +298,7 @@ class WhisperManager {
     args.push("--output-format", "json");
 
     return new Promise(async (resolve, reject) => {
+      const spawnStartTime = Date.now();
       const ffmpegPath = await this.getFFmpegPath();
       const absoluteFFmpegPath = path.resolve(ffmpegPath);
       const enhancedEnv = {
@@ -339,13 +395,27 @@ class WhisperManager {
         const stderrText = data.toString();
         stderr += stderrText;
 
+        // Log to debug logger
         debugLogger.logProcessOutput('Whisper', 'stderr', data);
+
+        // Print all MLX-related output to console
+        if (stderrText.includes('[MLX]') || stderrText.includes('quantization')) {
+          console.log(stderrText.trim());
+        }
+
+        // Warn on errors even during successful exit
+        if (stderrText.toLowerCase().includes('error') || stderrText.toLowerCase().includes('failed')) {
+          console.warn('[Whisper] Potential error in stderr:', stderrText.trim());
+        }
       });
 
       whisperProcess.on("close", (code) => {
         if (isResolved) return;
         isResolved = true;
         clearTimeout(timeout);
+
+        const processTime = Date.now() - spawnStartTime;
+        const totalTime = Date.now() - startTime;
 
         debugLogger.logWhisperPipeline('Process closed', {
           code,
@@ -354,9 +424,13 @@ class WhisperManager {
         });
 
         if (code === 0) {
+          console.log(`[TIMING:NODE]   - Python process execution: ${processTime}ms`);
+          console.log(`[TIMING:NODE] ✅ runWhisperProcess() completed in ${totalTime}ms`);
           debugLogger.log('Transcription successful');
           resolve(stdout);
         } else {
+          console.log(`[TIMING:NODE] ❌ runWhisperProcess() failed after ${totalTime}ms (code: ${code})`);
+
           // Better error message for FFmpeg issues
           let errorMessage = `Whisper transcription failed (code ${code}): ${stderr}`;
 
@@ -377,6 +451,9 @@ class WhisperManager {
         if (isResolved) return;
         isResolved = true;
         clearTimeout(timeout);
+
+        const errorTime = Date.now() - startTime;
+        console.log(`[TIMING:NODE] ❌ runWhisperProcess() error after ${errorTime}ms: ${error.message}`);
 
         if (error.code === "ENOENT") {
           const platformHelp =
@@ -420,10 +497,22 @@ class WhisperManager {
       }
 
       const result = JSON.parse(jsonLine);
-      
-      if (!result.text || result.text.trim().length === 0) {
-        return { success: false, message: "No audio detected" };
+
+      // Check for explicit failure in result
+      if (result.success === false) {
+        debugLogger.log('Whisper returned error:', result.error || 'Unknown error');
+        return { success: false, message: result.error || "Transcription failed" };
       }
+
+      // Check for empty text
+      if (!result.text || result.text.trim().length === 0) {
+        debugLogger.log('Whisper returned empty text. Backend:', result.backend || 'unknown');
+        return {
+          success: false,
+          message: "Transcription produced no text (possible audio issue or model failure)"
+        };
+      }
+
       return { success: true, text: result.text.trim() };
     } catch (parseError) {
       debugLogger.error('Failed to parse Whisper output');
@@ -463,6 +552,14 @@ class WhisperManager {
     if (process.platform === "win32") {
       this.getWindowsPythonCandidates().forEach(addCandidate);
     }
+
+    // Add pyenv paths (checks ~/.pyenv/shims for all platforms)
+    const homeDir = os.homedir();
+    const pyenvShims = [
+      path.join(homeDir, ".pyenv", "shims", "python3"),
+      path.join(homeDir, ".pyenv", "shims", "python"),
+    ];
+    pyenvShims.forEach(addCandidate);
 
     const commonCandidates = [
       "python3.12",
@@ -608,14 +705,21 @@ class WhisperManager {
     return version && version.major === 3;
   }
 
-  async checkWhisperInstallation() {
-    // Return cached result if available
-    if (this.whisperInstalled !== null) {
+  async checkWhisperInstallation(forceCheck = false) {
+    // Return cached result if available and not forcing a fresh check
+    if (!forceCheck && this.whisperInstalled !== null) {
+      debugLogger.log('Using cached Whisper installation result:', this.whisperInstalled);
       return this.whisperInstalled;
     }
 
     try {
+      // Force re-finding Python executable on fresh check
+      if (forceCheck) {
+        this.pythonCmd = null;
+      }
+
       const pythonCmd = await this.findPythonExecutable();
+      debugLogger.log('Checking Whisper installation with Python:', pythonCmd);
 
       const result = await new Promise((resolve) => {
         const checkProcess = spawn(pythonCmd, [
@@ -624,19 +728,27 @@ class WhisperManager {
         ]);
 
         let output = "";
+        let stderr = "";
         checkProcess.stdout.on("data", (data) => {
           output += data.toString();
         });
 
+        checkProcess.stderr.on("data", (data) => {
+          stderr += data.toString();
+        });
+
         checkProcess.on("close", (code) => {
           if (code === 0 && output.includes("OK")) {
+            debugLogger.log('Whisper check SUCCESS with Python:', pythonCmd);
             resolve({ installed: true, working: true });
           } else {
+            debugLogger.log('Whisper check FAILED. Python:', pythonCmd, 'stderr:', stderr);
             resolve({ installed: false, working: false });
           }
         });
 
         checkProcess.on("error", (error) => {
+          debugLogger.error('Whisper check ERROR:', error.message);
           resolve({ installed: false, working: false, error: error.message });
         });
       });
@@ -654,8 +766,82 @@ class WhisperManager {
     }
   }
 
+  async checkMlxInstallation(forceCheck = false) {
+    // Return cached result if available and not forcing a fresh check
+    if (!forceCheck && this.mlxInstalled !== null) {
+      debugLogger.log('Using cached MLX installation result:', this.mlxInstalled);
+      return this.mlxInstalled;
+    }
+
+    try {
+      // Force re-finding Python executable on fresh check
+      if (forceCheck) {
+        this.pythonCmd = null;
+      }
+
+      const pythonCmd = await this.findPythonExecutable();
+      debugLogger.log('Checking official mlx-whisper installation with Python:', pythonCmd);
+
+      const result = await new Promise((resolve) => {
+        const checkProcess = spawn(pythonCmd, [
+          "-c",
+          'import mlx_whisper; print("OK")',
+        ]);
+
+        let output = "";
+        let stderr = "";
+        checkProcess.stdout.on("data", (data) => {
+          output += data.toString();
+        });
+
+        checkProcess.stderr.on("data", (data) => {
+          stderr += data.toString();
+        });
+
+        checkProcess.on("close", (code) => {
+          if (code === 0 && output.includes("OK")) {
+            debugLogger.log('MLX check SUCCESS with Python:', pythonCmd);
+            resolve({ installed: true, working: true });
+          } else {
+            debugLogger.log('MLX check FAILED. Python:', pythonCmd, 'stderr:', stderr);
+            resolve({ installed: false, working: false });
+          }
+        });
+
+        checkProcess.on("error", (error) => {
+          debugLogger.error('MLX check ERROR:', error.message);
+          resolve({ installed: false, working: false, error: error.message });
+        });
+      });
+
+      this.mlxInstalled = result; // Cache the result
+
+      // Auto-enable MLX if it's installed
+      if (result.installed && result.working) {
+        this.useMlx = true;
+        debugLogger.log('MLX GPU acceleration enabled');
+      }
+
+      return result;
+    } catch (error) {
+      const errorResult = {
+        installed: false,
+        working: false,
+        error: error.message,
+      };
+      this.mlxInstalled = errorResult;
+      return errorResult;
+    }
+  }
+
   async checkFFmpegAvailability() {
-    debugLogger.logWhisperPipeline('checkFFmpegAvailability - start', {});
+    // Return cached result if available (FFmpeg location doesn't change during runtime)
+    if (this.cachedFFmpegAvailability !== null) {
+      debugLogger.log('Using cached FFmpeg availability result:', this.cachedFFmpegAvailability);
+      return this.cachedFFmpegAvailability;
+    }
+
+    debugLogger.logWhisperPipeline('checkFFmpegAvailability - start (first check)', {});
 
     try {
       const pythonCmd = await this.findPythonExecutable();
@@ -695,7 +881,7 @@ class WhisperManager {
             outputLength: output.length,
             stderrLength: stderr.length
           });
-          
+
           if (code === 0) {
             try {
               const result = JSON.parse(output);
@@ -722,14 +908,25 @@ class WhisperManager {
         });
       });
 
+      // Cache the result for future calls
+      this.cachedFFmpegAvailability = result;
       return result;
     } catch (error) {
-      return { available: false, error: error.message };
+      const errorResult = { available: false, error: error.message };
+      // Cache error results too (to avoid repeated failures)
+      this.cachedFFmpegAvailability = errorResult;
+      return errorResult;
     }
   }
 
   upgradePip(pythonCmd) {
-    return runCommand(pythonCmd, ["-m", "pip", "install", "--upgrade", "pip"], { timeout: TIMEOUTS.PIP_UPGRADE });
+    // On macOS, use --user to avoid externally-managed-environment errors
+    const args = ["-m", "pip", "install"];
+    if (process.platform === 'darwin') {
+      args.push("--user");
+    }
+    args.push("--upgrade", "pip");
+    return runCommand(pythonCmd, args, { timeout: TIMEOUTS.PIP_UPGRADE });
   }
 
   // Removed - now using shared runCommand from utils/process.js
@@ -774,9 +971,12 @@ class WhisperManager {
       args.push("-U", "openai-whisper");
       return args;
     };
-    
+
+    // On macOS, default to --user to avoid externally-managed-environment errors
+    const defaultUseUser = process.platform === 'darwin';
+
     try {
-      return await runCommand(pythonCmd, buildInstallArgs(), { timeout: TIMEOUTS.DOWNLOAD });
+      return await runCommand(pythonCmd, buildInstallArgs({ user: defaultUseUser }), { timeout: TIMEOUTS.DOWNLOAD });
     } catch (error) {
       const cleanMessage = this.sanitizeErrorMessage(error.message);
       

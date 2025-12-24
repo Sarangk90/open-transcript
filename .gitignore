@@ -272,4 +272,7 @@ $RECYCLE.BIN/
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db 
+Thumbs.db
+
+# MLX model cache (models are downloaded by lightning-whisper-mlx)
+mlx_models/

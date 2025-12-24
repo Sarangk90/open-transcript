@@ -183,8 +183,38 @@ export const REASONING_PROVIDERS = {
     ],
   },
   local: {
-    name: "Local AI",
+    name: "Local AI (llama.cpp)",
     models: [], // Will be populated dynamically
+  },
+  ollama: {
+    name: "Ollama",
+    models: [
+      {
+        value: "qwen3:4b",
+        label: "Qwen 3 4B",
+        description: "⚡ Fast & efficient (RECOMMENDED)",
+      },
+      {
+        value: "qwen3:8b",
+        label: "Qwen 3 8B",
+        description: "Balanced performance",
+      },
+      {
+        value: "deepseek-coder-v2:16b",
+        label: "DeepSeek Coder 16B",
+        description: "Code-focused",
+      },
+      {
+        value: "llama3.2:3b",
+        label: "Llama 3.2 3B",
+        description: "Meta's compact",
+      },
+      {
+        value: "llama3.1:8b",
+        label: "Llama 3.1 8B",
+        description: "Meta's powerful",
+      },
+    ],
   },
 };
 
@@ -215,14 +245,16 @@ export const getReasoningModelLabel = (modelId: string): string => {
 export const getModelProvider = (modelId: string): string => {
   const allModels = getAllReasoningModels();
   const model = allModels.find((m) => m.value === modelId);
-  
+
   // If model not found, try to infer from model name
   if (!model) {
     if (modelId.includes("claude")) return "anthropic";
     if (modelId.includes("gemini")) return "gemini";
     if (modelId.includes("gpt") || modelId.includes("o3") || modelId.includes("o4") || modelId.includes("o1")) return "openai";
-    if (modelId.includes("qwen") || modelId.includes("llama") || modelId.includes("mistral")) return "local";
+    if (modelId.includes("qwen") || modelId.includes("llama") || modelId.includes("mistral") || modelId.includes("deepseek") || modelId.includes(":")) return "local";
   }
-  
-  return model?.provider || "openai";
+
+  // Map ollama provider to local (they both use LocalReasoningService)
+  const provider = model?.provider || "openai";
+  return provider === "ollama" ? "local" : provider;
 };

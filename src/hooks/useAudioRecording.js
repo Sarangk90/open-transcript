@@ -26,14 +26,23 @@ export const useAudioRecording = (toast, options = {}) => {
         });
       },
       onTranscriptionComplete: async (result) => {
+        const callbackStartTime = Date.now();
+        console.log('[TIMING] onTranscriptionComplete callback started');
+
         if (result.success) {
           setTranscript(result.text);
 
           // Paste immediately
+          const pasteStartTime = Date.now();
           await audioManagerRef.current.safePaste(result.text);
+          const pasteTime = Date.now() - pasteStartTime;
+          console.log(`[TIMING]   - safePaste() call: ${pasteTime}ms`);
 
           // Save to database in parallel
+          const saveStartTime = Date.now();
           audioManagerRef.current.saveTranscription(result.text);
+          const saveTime = Date.now() - saveStartTime;
+          console.log(`[TIMING]   - saveTranscription() call: ${saveTime}ms`);
 
           // Show success notification if local fallback was used
           if (
@@ -47,6 +56,9 @@ export const useAudioRecording = (toast, options = {}) => {
             });
           }
         }
+
+        const callbackTime = Date.now() - callbackStartTime;
+        console.log(`[TIMING] ✅ onTranscriptionComplete callback completed in ${callbackTime}ms`);
       },
     });
 

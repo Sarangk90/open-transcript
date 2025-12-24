@@ -158,21 +158,23 @@ trayManager.setWindowManager(windowManager);
   );
   updateManager.checkForUpdatesOnStartup();
 
-  if (process.platform === "darwin") {
-    globeKeyManager.on("globe-down", () => {
-      if (hotkeyManager.getCurrentHotkey && hotkeyManager.getCurrentHotkey() === "GLOBE") {
-        if (
-          windowManager.mainWindow &&
-          !windowManager.mainWindow.isDestroyed()
-        ) {
-          windowManager.showDictationPanel();
-          windowManager.mainWindow.webContents.send("toggle-dictation");
-        }
-      }
-    });
-
-    globeKeyManager.start();
-  }
+  // Globe key support disabled due to macOS 26.2 SDK/compiler mismatch
+  // Uncomment to re-enable Globe key hotkey support
+  // if (process.platform === "darwin") {
+  //   globeKeyManager.on("globe-down", () => {
+  //     if (hotkeyManager.getCurrentHotkey && hotkeyManager.getCurrentHotkey() === "GLOBE") {
+  //       if (
+  //         windowManager.mainWindow &&
+  //         !windowManager.mainWindow.isDestroyed()
+  //       ) {
+  //         windowManager.showDictationPanel();
+  //         windowManager.mainWindow.webContents.send("toggle-dictation");
+  //       }
+  //     }
+  //   });
+  //
+  //   globeKeyManager.start();
+  // }
 }
 
 // App event handlers

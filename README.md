@@ -21,7 +21,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - 🚀 **Fast**: Optimized with Vite and modern tooling
 - 📱 **Control Panel**: Manage settings, view history, and configure API keys
 - 🗄️ **Transcription History**: SQLite database stores all your transcriptions locally
-- 🔧 **Model Management**: Download and manage local Whisper models (tiny, base, small, medium, large, turbo)
+- 🔧 **Model Management**: Download and manage local Whisper models (tiny, base, small, medium, large, large-v3, turbo)
 - 🧹 **Model Cleanup**: One-click removal of cached Whisper models with uninstall hooks to keep disks tidy
 - 🌐 **Cross-Platform**: Works on macOS, Windows, and Linux
 - ⚡ **Automatic Pasting**: Transcribed text automatically pastes at your cursor location
@@ -264,7 +264,7 @@ The AI automatically detects when you're giving it commands versus dictating reg
 ### Processing Options
 - **Local Processing**: 
   - Install Whisper automatically through the Control Panel
-  - Download models: tiny (fastest), base (recommended), small, medium, large (best quality)
+  - Download models: tiny (fastest), base (recommended), small, medium, large, large-v3 (best quality)
   - Complete privacy - audio never leaves your device
 - **Cloud Processing**:
   - Requires OpenAI API key
@@ -493,7 +493,7 @@ OpenWhispr is designed with privacy and security in mind:
 
 - **Local Processing**: Use "base" model for best balance of speed and accuracy
 - **Cloud Processing**: Generally faster but requires internet connection
-- **Model Selection**: tiny (fastest) → base (recommended) → small → medium → large (best quality)
+- **Model Selection**: tiny (fastest) → base (recommended) → small → medium → large → large-v3 (best quality)
 - **Permissions**: Ensure all required permissions are granted for smooth operation
 
 ## FAQ

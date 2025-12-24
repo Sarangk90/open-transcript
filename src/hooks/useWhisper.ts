@@ -8,7 +8,7 @@ export interface UseWhisperReturn {
   installingWhisper: boolean;
   installProgress: string;
 
-  checkWhisperInstallation: () => Promise<void>;
+  checkWhisperInstallation: (forceCheck?: boolean) => Promise<void>;
   installWhisper: () => Promise<void>;
   setupProgressListener: () => (() => void) | void;
 }
@@ -25,11 +25,11 @@ export const useWhisper = (
   const [installingWhisper, setInstallingWhisper] = useState(false);
   const [installProgress, setInstallProgress] = useState("");
 
-  const checkWhisperInstallation = useCallback(async () => {
+  const checkWhisperInstallation = useCallback(async (forceCheck = false) => {
     try {
       setCheckingWhisper(true);
       const result: WhisperCheckResult =
-        await window.electronAPI.checkWhisperInstallation();
+        await window.electronAPI.checkWhisperInstallation(forceCheck);
       setWhisperInstalled(result.installed && result.working);
     } catch (error) {
       console.error("Error checking Whisper installation:", error);

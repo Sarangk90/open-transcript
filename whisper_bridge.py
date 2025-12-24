@@ -15,6 +15,7 @@ import threading
 import time
 import requests
 import gc
+import torch
 
 def get_ffmpeg_path():
     """Get path to bundled FFmpeg executable with proper production support"""
@@ -122,15 +123,15 @@ def load_model(model_name="base"):
     # Return cached model if available
     if model_name in _model_cache:
         return _model_cache[model_name]
-    
+
     try:
         model = whisper.load_model(model_name)
-        
+
         if len(_model_cache) >= 2:
             oldest_key = next(iter(_model_cache))
             del _model_cache[oldest_key]
             gc.collect()
-        
+
         _model_cache[model_name] = model
         return model
     except Exception as e:
@@ -338,13 +339,13 @@ def check_model_status(model_name="base"):
 
 def list_models():
     """List all available models and their download status"""
-    models = ["tiny", "base", "small", "medium", "large", "turbo"]
+    models = ["tiny", "base", "small", "medium", "large", "turbo", "turbo-q4", "base-8bit", "medium-8bit", "large-8bit"]
     model_info = []
-    
+
     for model in models:
         status = check_model_status(model)
         model_info.append(status)
-    
+
     return {
         "models": model_info,
         "cache_dir": os.path.expanduser("~/.cache/whisper"),
@@ -467,7 +468,7 @@ def main():
                        choices=["transcribe", "download", "check", "list", "delete", "check-ffmpeg"],
                        help="Operation mode (default: transcribe)")
     parser.add_argument("audio_file", nargs="?", help="Path to audio file to transcribe")
-    parser.add_argument("--model", default="base", 
+    parser.add_argument("--model", default="base",
                        choices=["tiny", "base", "small", "medium", "large", "turbo"],
                        help="Whisper model to use (default: base)")
     parser.add_argument("--language", help="Language code (optional)")

@@ -77,8 +77,10 @@ if (result.status !== 0) {
 }
 
 if (result.status !== 0) {
-  console.error("[globe-listener] Failed to compile macOS Globe listener binary.");
-  process.exit(result.status ?? 1);
+  console.warn("[globe-listener] Failed to compile macOS Globe listener binary.");
+  console.warn("[globe-listener] Globe key support will be unavailable, but the app will work normally.");
+  console.warn("[globe-listener] To fix: Update Xcode Command Line Tools with 'xcode-select --install'");
+  process.exit(0); // Non-fatal - app can run without Globe listener
 }
 
 try {

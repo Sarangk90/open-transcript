@@ -141,17 +141,23 @@ class IPCHandlers {
     ipcMain.handle(
       "transcribe-local-whisper",
       async (event, audioBlob, options = {}) => {
+        const ipcStartTime = Date.now();
+        console.log('[TIMING:IPC] 🔵 IPC Handler received transcribe-local-whisper request');
+
         debugLogger.log('transcribe-local-whisper called', {
           audioBlobType: typeof audioBlob,
           audioBlobSize: audioBlob?.byteLength || audioBlob?.length || 0,
           options
         });
-        
+
         try {
           const result = await this.whisperManager.transcribeLocalWhisper(
             audioBlob,
             options
           );
+
+          const ipcTotalTime = Date.now() - ipcStartTime;
+          console.log(`[TIMING:IPC] ✅ IPC Handler returning result after ${ipcTotalTime}ms`);
 
           debugLogger.log('Whisper result', {
             success: result.success,
@@ -159,7 +165,7 @@ class IPCHandlers {
             message: result.message,
             error: result.error
           });
-          
+
           // Check if no audio was detected and send appropriate event
           if (!result.success && result.message === "No audio detected") {
             debugLogger.log('Sending no-audio-detected event to renderer');
@@ -168,14 +174,20 @@ class IPCHandlers {
 
           return result;
         } catch (error) {
+          const ipcErrorTime = Date.now() - ipcStartTime;
+          console.log(`[TIMING:IPC] ❌ IPC Handler error after ${ipcErrorTime}ms`);
           debugLogger.error('Local Whisper transcription error', error);
           throw error;
         }
       }
     );
 
-    ipcMain.handle("check-whisper-installation", async (event) => {
-      return this.whisperManager.checkWhisperInstallation();
+    ipcMain.handle("check-whisper-installation", async (event, forceCheck = false) => {
+      return this.whisperManager.checkWhisperInstallation(forceCheck);
+    });
+
+    ipcMain.handle("check-mlx-installation", async (event, forceCheck = false) => {
+      return this.whisperManager.checkMlxInstallation(forceCheck);
     });
 
     ipcMain.handle("check-python-installation", async (event) => {
@@ -522,6 +534,12 @@ class IPCHandlers {
     // Debug logging handler for reasoning pipeline
     ipcMain.handle("log-reasoning", async (event, stage, details) => {
       debugLogger.logReasoning(stage, details);
+      return { success: true };
+    });
+
+    // Terminal logging handler for timing logs
+    ipcMain.handle("log-to-terminal", async (event, message) => {
+      console.log(message);
       return { success: true };
     });
   }

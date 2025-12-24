@@ -8,7 +8,7 @@ Your OpenWhispr app has been successfully refactored to support **local Whisper 
 
 1. **Python Bridge Script** (`whisper_bridge.py`)
    - Handles local audio transcription using OpenAI's Whisper models
-   - Supports all Whisper models: tiny, base, small, medium, large, turbo
+   - Supports all Whisper models: tiny, base, small, medium, large, large-v3, turbo
    - JSON output for integration with Electron app
    - Proper error handling and cleanup
 
@@ -50,6 +50,7 @@ Your OpenWhispr app has been successfully refactored to support **local Whisper 
   - **Small**: Better quality, slower (244M params)
   - **Medium**: High quality, much slower (769M params)
   - **Large**: Best quality, very slow (1550M params)
+  - **Large-v3**: Latest large model, best accuracy (1550M params)
   - **Turbo**: Fast with good quality (809M params)
 
 ### Step 3: Save Settings
@@ -123,14 +124,15 @@ The app is configured with intelligent fallback:
 
 ## 📊 Model Performance Guide
 
-| Model  | Size  | Speed    | Quality | Memory | Best For |
-|--------|-------|----------|---------|--------|----------|
-| Tiny   | 39M   | Fastest  | Basic   | ~1GB   | Quick notes |
-| Base   | 74M   | Fast     | Good    | ~1GB   | **Recommended** |
-| Small  | 244M  | Medium   | Better  | ~2GB   | Professional use |
-| Medium | 769M  | Slow     | High    | ~5GB   | High accuracy needed |
-| Large  | 1550M | Slowest  | Best    | ~10GB  | Maximum quality |
-| Turbo  | 809M  | Fast     | High    | ~6GB   | Best balance |
+| Model    | Size  | Speed    | Quality | Memory | Best For |
+|----------|-------|----------|---------|--------|----------|
+| Tiny     | 39M   | Fastest  | Basic   | ~1GB   | Quick notes |
+| Base     | 74M   | Fast     | Good    | ~1GB   | **Recommended** |
+| Small    | 244M  | Medium   | Better  | ~2GB   | Professional use |
+| Medium   | 769M  | Slow     | High    | ~5GB   | High accuracy needed |
+| Large    | 1550M | Slowest  | Best    | ~10GB  | Maximum quality |
+| Large-v3 | 1550M | Slowest  | Best+   | ~10GB  | Latest, best accuracy |
+| Turbo    | 809M  | Fast     | High    | ~6GB   | Best balance |
 
 ## 🛠 Troubleshooting
 

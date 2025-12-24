@@ -285,7 +285,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 - **Speech-to-Text**: Convert voice to text using OpenAI Whisper
 - **Dual Processing**: Choose between local processing (private) or cloud processing (fast)
-- **Model Management**: Download and manage local Whisper models (tiny, base, small, medium, large)
+- **Model Management**: Download and manage local Whisper models (tiny, base, small, medium, large, large-v3)
 - **Transcription History**: View, copy, and delete past transcriptions
 - **Accessibility Integration**: Automatic text pasting with proper permission handling
 - **API Key Management**: Secure storage and management of OpenAI API keys

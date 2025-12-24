@@ -204,12 +204,13 @@ class ReasoningService extends BaseReasoningService {
     try {
       let result: string;
       const startTime = Date.now();
-      
+      console.log(`[TIMING:AI] ReasoningService started (provider: ${provider}, model: ${model})`);
+
       debugLogger.logReasoning("ROUTING_TO_PROVIDER", {
         provider,
         model
       });
-      
+
       switch (provider) {
         case "openai":
           result = await this.processWithOpenAI(text, model, agentName, config);
@@ -226,9 +227,10 @@ class ReasoningService extends BaseReasoningService {
         default:
           throw new Error(`Unsupported reasoning provider: ${provider}`);
       }
-      
+
       const processingTime = Date.now() - startTime;
-      
+      console.log(`[TIMING:AI] ✅ ReasoningService completed in ${processingTime}ms`);
+
       debugLogger.logReasoning("PROVIDER_SUCCESS", {
         provider,
         model,
@@ -236,7 +238,7 @@ class ReasoningService extends BaseReasoningService {
         resultLength: result.length,
         resultPreview: result.substring(0, 100) + (result.length > 100 ? "..." : "")
       });
-      
+
       return result;
     } catch (error) {
       debugLogger.logReasoning("PROVIDER_ERROR", {
@@ -279,25 +281,15 @@ class ReasoningService extends BaseReasoningService {
       const systemPrompt = "You are a dictation assistant. Clean up text by fixing grammar and punctuation. Output ONLY the cleaned text without any explanations, options, or commentary.";
       const userPrompt = this.getReasoningPrompt(text, agentName, config);
 
-      // Build input array for Responses API
-      const input = [
+      // Build messages array
+      const messages = [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
       ];
 
-      // Build request body for Responses API
-      const requestBody: any = {
-        model: model || "gpt-4o-mini",
-        input,
-        messages: input, // include both for Responses and Chat Completions compatibility
-        store: false, // Don't store responses for privacy
-      };
-
       // Add temperature for older models (GPT-4 and earlier)
       const isOlderModel = model && (model.startsWith('gpt-4') || model.startsWith('gpt-3'));
-      if (isOlderModel) {
-        requestBody.temperature = config.temperature || 0.3;
-      }
+      const temperature = isOlderModel ? (config.temperature || 0.3) : undefined;
 
       const openAiBase = this.getConfiguredOpenAIBase();
       const endpointCandidates = this.getOpenAIEndpointCandidates(openAiBase);
@@ -308,12 +300,43 @@ class ReasoningService extends BaseReasoningService {
         preference: this.getStoredOpenAiPreference(openAiBase) || null,
       });
 
+      const apiStartTime = Date.now();
+      console.log('[TIMING:AI]   - Starting OpenAI API call...');
       const response = await withRetry(
         async () => {
           let lastError: Error | null = null;
 
           for (const { url: endpoint, type } of endpointCandidates) {
             try {
+              // Build request body based on endpoint type
+              const requestBody: any = {
+                model: model || "gpt-4o-mini",
+              };
+
+              if (type === 'responses') {
+                // Responses API format
+                requestBody.input = messages;
+                requestBody.store = false; // Don't store responses for privacy
+                if (temperature !== undefined) {
+                  requestBody.temperature = temperature;
+                }
+              } else {
+                // Chat Completions format
+                requestBody.messages = messages;
+                if (temperature !== undefined) {
+                  requestBody.temperature = temperature;
+                }
+              }
+
+              debugLogger.logReasoning("OPENAI_REQUEST", {
+                endpoint,
+                type,
+                model: requestBody.model,
+                hasInput: !!requestBody.input,
+                hasMessages: !!requestBody.messages,
+                temperature: requestBody.temperature
+              });
+
               const res = await fetch(endpoint, {
                 method: "POST",
                 headers: {
@@ -366,6 +389,9 @@ class ReasoningService extends BaseReasoningService {
         },
         createApiRetryStrategy("OpenAI")
       );
+
+      const apiCallTime = Date.now() - apiStartTime;
+      console.log(`[TIMING:AI]   - OpenAI API call completed in ${apiCallTime}ms`);
 
       // Detect the API response format (Responses API vs Chat Completions)
       const isResponsesApi = Array.isArray(response?.output);

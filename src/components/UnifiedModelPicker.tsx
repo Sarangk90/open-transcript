@@ -209,7 +209,7 @@ export default function UnifiedModelPicker({
           const whisperModels: Model[] = result.models.map((m: any) => ({
             ...m,
             id: m.model,
-            name: m.model.charAt(0).toUpperCase() + m.model.slice(1),
+            name: m.model.charAt(0).toUpperCase() + m.model.slice(1).replace('-', ' '),
             size: m.size_mb ? `${m.size_mb}MB` : 'Unknown',
             description: {
               tiny: "Fastest, lower quality",
@@ -217,11 +217,15 @@ export default function UnifiedModelPicker({
               small: "Better quality, slower",
               medium: "High quality",
               large: "Best quality, slowest",
-              turbo: "Fast with good quality"
+              turbo: "Fast with good quality (4 decoder layers)",
+              "turbo-q4": "🚀 Ultra-fast, 4-bit quantized turbo (60x real-time)",
+              "base-8bit": "8-bit quantized base (faster, same quality)",
+              "medium-8bit": "8-bit quantized medium (faster, same quality)",
+              "large-8bit": "8-bit quantized large (faster, same quality)"
             }[m.model] || "Model",
             type: 'whisper' as const,
             isDownloaded: m.downloaded,
-            recommended: m.model === 'base'
+            recommended: m.model === 'turbo-q4'
           }));
           setModels(whisperModels);
         }

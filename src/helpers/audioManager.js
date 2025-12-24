@@ -32,6 +32,7 @@ class AudioManager {
     this.cachedApiKey = null;
     this.cachedTranscriptionEndpoint = null;
     this.recordingStartTime = null;
+    this.processingStartTime = null; // Track when processing starts
     this.reasoningAvailabilityCache = { value: false, expiresAt: 0 };
     this.cachedReasoningPreference = null;
   }
@@ -111,6 +112,13 @@ class AudioManager {
 
   stopRecording() {
     if (this.mediaRecorder && this.isRecording) {
+      this.processingStartTime = Date.now();
+      // Log to both console and terminal
+      const msg = '[TIMING:FRONTEND] ⏹️  RECORDING STOPPED - Processing pipeline starting...';
+      console.log(msg);
+      if (typeof window !== 'undefined' && window.electronAPI?.logToTerminal) {
+        window.electronAPI.logToTerminal(msg).catch(() => {});
+      }
       this.mediaRecorder.stop();
       // State change will be handled in onstop callback
       return true;
@@ -119,6 +127,9 @@ class AudioManager {
   }
 
   async processAudio(audioBlob, metadata = {}) {
+    const overallStartTime = Date.now();
+    console.log('[TIMING] processAudio() started');
+
     try {
       const useLocalWhisper = localStorage.getItem("useLocalWhisper") === "true";
       const whisperModel = localStorage.getItem("whisperModel") || "base";
@@ -129,7 +140,36 @@ class AudioManager {
       } else {
         result = await this.processWithOpenAIAPI(audioBlob, metadata);
       }
+
+      const pasteStartTime = Date.now();
       this.onTranscriptionComplete?.(result);
+      const pasteEndTime = Date.now();
+
+      const overallEndTime = Date.now();
+      const overallTime = overallEndTime - overallStartTime;
+      const callbackTime = pasteEndTime - pasteStartTime;
+      const absoluteEndToEndTime = this.processingStartTime
+        ? overallEndTime - this.processingStartTime
+        : overallTime;
+
+      const msg1 = `[TIMING:FRONTEND] ✅ TOTAL END-TO-END TIME (from stopRecording): ${absoluteEndToEndTime}ms (${(absoluteEndToEndTime / 1000).toFixed(2)}s)`;
+      const msg2 = `[TIMING:FRONTEND]   - processAudio() time: ${overallTime}ms`;
+      const msg3 = `[TIMING:FRONTEND]   - Transcription callback time: ${callbackTime}ms`;
+      const msg4 = `[TIMING:FRONTEND]   - Transcription + reasoning time: ${overallTime - callbackTime}ms`;
+
+      console.log(msg1);
+      console.log(msg2);
+      console.log(msg3);
+      console.log(msg4);
+
+      if (typeof window !== 'undefined' && window.electronAPI?.logToTerminal) {
+        window.electronAPI.logToTerminal(msg1).catch(() => {});
+        window.electronAPI.logToTerminal(msg2).catch(() => {});
+        window.electronAPI.logToTerminal(msg3).catch(() => {});
+        window.electronAPI.logToTerminal(msg4).catch(() => {});
+      }
+
+      this.processingStartTime = null; // Reset for next recording
     } catch (error) {
       if (error.message !== "No audio detected") {
         this.onError?.({
@@ -137,6 +177,9 @@ class AudioManager {
           description: `Transcription failed: ${error.message}`,
         });
       }
+
+      const overallEndTime = Date.now();
+      console.log(`[TIMING] ❌ processAudio() failed after ${overallEndTime - overallStartTime}ms`);
     } finally {
       this.isProcessing = false;
       this.onStateChange?.({ isRecording: false, isProcessing: false });
@@ -144,21 +187,39 @@ class AudioManager {
   }
 
   async processWithLocalWhisper(audioBlob, model = "base", metadata = {}) {
+    const startTime = Date.now();
+    console.log(`[TIMING] processWithLocalWhisper() started with model: ${model}`);
+
     try {
+      const bufferStartTime = Date.now();
       const arrayBuffer = await audioBlob.arrayBuffer();
+      const bufferTime = Date.now() - bufferStartTime;
+      console.log(`[TIMING]   - Blob to ArrayBuffer conversion: ${bufferTime}ms`);
+
       const language = localStorage.getItem("preferredLanguage");
       const options = { model };
       if (language && language !== "auto") {
         options.language = language;
       }
 
+      const transcribeStartTime = Date.now();
       const result = await window.electronAPI.transcribeLocalWhisper(
         arrayBuffer,
         options
       );
+      const transcribeTime = Date.now() - transcribeStartTime;
+      console.log(`[TIMING]   - Local Whisper IPC call: ${transcribeTime}ms`);
 
       if (result.success && result.text) {
+        const reasoningStartTime = Date.now();
+        console.log(`[TIMING]   - Starting AI cleanup/reasoning...`);
         const text = await this.processTranscription(result.text, "local");
+        const reasoningTime = Date.now() - reasoningStartTime;
+        console.log(`[TIMING]   - AI cleanup/reasoning completed: ${reasoningTime}ms`);
+
+        const totalTime = Date.now() - startTime;
+        console.log(`[TIMING] ✅ processWithLocalWhisper() completed in ${totalTime}ms`);
+
         if (text !== null && text !== undefined) {
           return { success: true, text: text || result.text, source: "local" };
         } else {
@@ -174,6 +235,9 @@ class AudioManager {
         throw new Error(result.error || "Local Whisper transcription failed");
       }
     } catch (error) {
+      const errorTime = Date.now() - startTime;
+      console.log(`[TIMING] ❌ processWithLocalWhisper() failed after ${errorTime}ms: ${error.message}`);
+
       if (error.message === "No audio detected") {
         throw error;
       }
@@ -183,6 +247,7 @@ class AudioManager {
 
       if (allowOpenAIFallback && isLocalMode) {
         try {
+          console.log('[TIMING] Attempting OpenAI fallback...');
           const fallbackResult = await this.processWithOpenAIAPI(audioBlob, metadata);
           return { ...fallbackResult, source: "openai-fallback" };
         } catch (fallbackError) {
@@ -437,29 +502,57 @@ class AudioManager {
       try {
         const preparedText = normalizedText;
 
+        const aiStartMsg = `[TIMING:AI] 🤖 AI reasoning enabled - sending to ${reasoningProvider}/${reasoningModel}`;
+        console.log(aiStartMsg);
+        if (typeof window !== 'undefined' && window.electronAPI?.logToTerminal) {
+          window.electronAPI.logToTerminal(aiStartMsg).catch(() => {});
+        }
+
         debugLogger.logReasoning("SENDING_TO_REASONING", {
           preparedTextLength: preparedText.length,
           model: reasoningModel,
           provider: reasoningProvider
         });
 
+        const aiStartTime = Date.now();
         const result = await this.processWithReasoningModel(preparedText, reasoningModel, agentName);
-        
+        const aiTime = Date.now() - aiStartTime;
+
+        const aiCompleteMsg = `[TIMING:AI] ✅ AI reasoning completed in ${aiTime}ms`;
+        console.log(aiCompleteMsg);
+        if (typeof window !== 'undefined' && window.electronAPI?.logToTerminal) {
+          window.electronAPI.logToTerminal(aiCompleteMsg).catch(() => {});
+        }
         debugLogger.logReasoning("REASONING_SUCCESS", {
           resultLength: result.length,
           resultPreview: result.substring(0, 100) + (result.length > 100 ? "..." : ""),
           processingTime: new Date().toISOString()
         });
-        
+
         return result;
       } catch (error) {
+        const errorMsg = `[TIMING:AI] ❌ AI reasoning failed: ${error.message}`;
+        console.log(errorMsg);
+        console.error(`Reasoning failed (${source}):`, error.message);
+        console.error('Full error:', error);
+
+        if (typeof window !== 'undefined' && window.electronAPI?.logToTerminal) {
+          window.electronAPI.logToTerminal(errorMsg).catch(() => {});
+          window.electronAPI.logToTerminal(`[TIMING:AI] Error details: ${error.stack || error.message}`).catch(() => {});
+        }
+
         debugLogger.logReasoning("REASONING_FAILED", {
           error: error.message,
           stack: error.stack,
           fallbackToCleanup: true
         });
-        console.error(`Reasoning failed (${source}):`, error.message);
       }
+    }
+
+    const aiSkipMsg = `[TIMING:AI] ⏭️  AI reasoning not enabled - using text as-is`;
+    console.log(aiSkipMsg);
+    if (typeof window !== 'undefined' && window.electronAPI?.logToTerminal) {
+      window.electronAPI.logToTerminal(aiSkipMsg).catch(() => {});
     }
 
     debugLogger.logReasoning("USING_STANDARD_CLEANUP", {
@@ -470,13 +563,15 @@ class AudioManager {
   }
 
   async processWithOpenAIAPI(audioBlob, metadata = {}) {
+    const startTime = Date.now();
+    console.log('[TIMING] processWithOpenAIAPI() started');
+
     const language = localStorage.getItem("preferredLanguage");
     const allowLocalFallback =
       localStorage.getItem("allowLocalFallback") === "true";
     const fallbackModel = localStorage.getItem("fallbackWhisperModel") || "base";
 
     try {
-
       const durationSeconds = metadata.durationSeconds ?? null;
       const shouldSkipOptimizationForDuration =
         typeof durationSeconds === "number" &&
@@ -486,10 +581,13 @@ class AudioManager {
       const shouldOptimize =
         !shouldSkipOptimizationForDuration && audioBlob.size > 1024 * 1024;
 
+      const prepStartTime = Date.now();
       const [apiKey, optimizedAudio] = await Promise.all([
         this.getAPIKey(),
         shouldOptimize ? this.optimizeAudio(audioBlob) : Promise.resolve(audioBlob),
       ]);
+      const prepTime = Date.now() - prepStartTime;
+      console.log(`[TIMING]   - API key + audio optimization: ${prepTime}ms (optimized: ${shouldOptimize})`);
 
       const formData = new FormData();
       formData.append("file", optimizedAudio, "audio.wav");
@@ -499,6 +597,7 @@ class AudioManager {
         formData.append("language", language);
       }
 
+      const apiStartTime = Date.now();
       const response = await fetch(
         this.getTranscriptionEndpoint(),
         {
@@ -509,6 +608,8 @@ class AudioManager {
           body: formData,
         }
       );
+      const apiTime = Date.now() - apiStartTime;
+      console.log(`[TIMING]   - OpenAI API call: ${apiTime}ms`);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -518,17 +619,28 @@ class AudioManager {
       const result = await response.json();
 
       if (result.text) {
+        const reasoningStartTime = Date.now();
         const text = await this.processTranscription(result.text, "openai");
+        const reasoningTime = Date.now() - reasoningStartTime;
+        console.log(`[TIMING]   - Reasoning/processing: ${reasoningTime}ms`);
+
+        const totalTime = Date.now() - startTime;
+        console.log(`[TIMING] ✅ processWithOpenAIAPI() completed in ${totalTime}ms`);
+
         const source = await this.isReasoningAvailable() ? "openai-reasoned" : "openai";
         return { success: true, text, source };
       } else {
         throw new Error("No text transcribed");
       }
     } catch (error) {
+      const errorTime = Date.now() - startTime;
+      console.log(`[TIMING] ❌ processWithOpenAIAPI() failed after ${errorTime}ms: ${error.message}`);
+
       const isOpenAIMode = localStorage.getItem("useLocalWhisper") !== "true";
 
       if (allowLocalFallback && isOpenAIMode) {
         try {
+          console.log('[TIMING] Attempting local fallback...');
           const arrayBuffer = await audioBlob.arrayBuffer();
           const options = { model: fallbackModel };
           if (language && language !== "auto") {
@@ -600,10 +712,23 @@ class AudioManager {
   }
 
   async safePaste(text) {
+    const startTime = Date.now();
+    console.log('[TIMING] safePaste() started');
+
     try {
+      const pasteStartTime = Date.now();
       await window.electronAPI.pasteText(text);
+      const pasteTime = Date.now() - pasteStartTime;
+
+      const totalTime = Date.now() - startTime;
+      console.log(`[TIMING] ✅ safePaste() completed in ${totalTime}ms`);
+      console.log(`[TIMING]   - Actual paste operation: ${pasteTime}ms`);
+
       return true;
     } catch (error) {
+      const errorTime = Date.now() - startTime;
+      console.log(`[TIMING] ❌ safePaste() failed after ${errorTime}ms: ${error.message}`);
+
       this.onError?.({
         title: "Paste Error",
         description: `Failed to paste text. Please check accessibility permissions. ${error.message}`,
