@@ -223,18 +223,33 @@ class WhisperManager {
     let ffmpegPath;
 
     try {
-      ffmpegPath = require("ffmpeg-static");
-      debugLogger.logFFmpegDebug('Initial ffmpeg-static path', ffmpegPath);
+      // In packaged mode, always construct the path directly to avoid ASAR issues
+      if (process.env.NODE_ENV !== "development" && process.resourcesPath) {
+        const binaryName = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+        ffmpegPath = path.join(
+          process.resourcesPath,
+          "app.asar.unpacked",
+          "node_modules",
+          "ffmpeg-static",
+          binaryName
+        );
+        debugLogger.logFFmpegDebug('Using packaged FFmpeg path', ffmpegPath);
+      } else {
+        // Development mode - use require
+        ffmpegPath = require("ffmpeg-static");
+        debugLogger.logFFmpegDebug('Using development FFmpeg path', ffmpegPath);
 
-      if (process.platform === "win32" && !ffmpegPath.endsWith(".exe")) {
-        ffmpegPath += ".exe";
+        if (process.platform === "win32" && !ffmpegPath.endsWith(".exe")) {
+          ffmpegPath += ".exe";
+        }
       }
 
-      if (process.env.NODE_ENV !== "development" && !fs.existsSync(ffmpegPath)) {
+      // Fallback: if path doesn't exist, try alternatives
+      if (!fs.existsSync(ffmpegPath)) {
         const possiblePaths = [
           ffmpegPath.replace("app.asar", "app.asar.unpacked"),
           ffmpegPath.replace(/.*app\.asar/, path.join(__dirname, "..", "..", "app.asar.unpacked")),
-          path.join(process.resourcesPath, "app.asar.unpacked", "node_modules", "ffmpeg-static", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg")
+          path.join(process.resourcesPath || "", "app.asar.unpacked", "node_modules", "ffmpeg-static", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg")
         ];
 
         debugLogger.log('FFmpeg not found at primary path, checking alternatives');
