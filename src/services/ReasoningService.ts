@@ -3,15 +3,7 @@ import { BaseReasoningService, ReasoningConfig } from "./BaseReasoningService";
 import { SecureCache } from "../utils/SecureCache";
 import { withRetry, createApiRetryStrategy } from "../utils/retry";
 import { API_ENDPOINTS, API_VERSIONS, TOKEN_LIMITS, buildApiUrl, normalizeBaseUrl } from "../config/constants";
-
-// Import debugLogger for comprehensive logging
-const debugLogger = typeof window !== 'undefined' && window.electronAPI 
-  ? { logReasoning: (stage: string, details: any) => {
-      window.electronAPI.logReasoning?.(stage, details).catch(() => {});
-    }}
-  : { logReasoning: (stage: string, details: any) => {
-      console.log(`[REASONING ${stage}]`, details);
-    }};
+import logger from "../utils/logger";
 
 export const DEFAULT_PROMPTS = {
   agent: `You are {{agentName}}, a helpful AI assistant. Process and improve the following text, removing any reference to your name from the output:\n\n{{text}}\n\nImproved text:`,
@@ -44,7 +36,7 @@ class ReasoningService extends BaseReasoningService {
       // Security: Only allow HTTPS endpoints (except localhost for development)
       const isLocalhost = normalized.includes('://localhost') || normalized.includes('://127.0.0.1');
       if (!normalized.startsWith('https://') && !isLocalhost) {
-        debugLogger.logReasoning('OPENAI_BASE_REJECTED', {
+        logger.logReasoning('OPENAI_BASE_REJECTED', {
           reason: 'Non-HTTPS endpoint rejected for security',
           attempted: normalized
         });
@@ -144,7 +136,7 @@ class ReasoningService extends BaseReasoningService {
       ? null
       : this.apiKeyCache.get(provider);
 
-    debugLogger.logReasoning(`${provider.toUpperCase()}_KEY_RETRIEVAL`, {
+    logger.logReasoning(`${provider.toUpperCase()}_KEY_RETRIEVAL`, {
       provider,
       fromCache: !!apiKey,
       cacheSize: this.apiKeyCache.size || 0,
@@ -158,7 +150,7 @@ class ReasoningService extends BaseReasoningService {
           const localStorageKey = typeof window !== 'undefined' ? localStorage.getItem('openaiApiKey') : null;
           if (localStorageKey) {
             apiKey = localStorageKey;
-            debugLogger.logReasoning('OPENAI_KEY_FROM_LOCALSTORAGE', {
+            logger.logReasoning('OPENAI_KEY_FROM_LOCALSTORAGE', {
               hasKey: !!apiKey,
               keyLength: apiKey?.length || 0,
               keyPreview: apiKey ? `${apiKey.substring(0, 8)}...` : 'none'
@@ -175,7 +167,7 @@ class ReasoningService extends BaseReasoningService {
           };
           apiKey = await keyGetters[provider]();
 
-          debugLogger.logReasoning(`${provider.toUpperCase()}_KEY_FETCHED`, {
+          logger.logReasoning(`${provider.toUpperCase()}_KEY_FETCHED`, {
             provider,
             hasKey: !!apiKey,
             keyLength: apiKey?.length || 0,
@@ -187,7 +179,7 @@ class ReasoningService extends BaseReasoningService {
           this.apiKeyCache.set(provider, apiKey);
         }
       } catch (error) {
-        debugLogger.logReasoning(`${provider.toUpperCase()}_KEY_FETCH_ERROR`, {
+        logger.logReasoning(`${provider.toUpperCase()}_KEY_FETCH_ERROR`, {
           provider,
           error: (error as Error).message,
           stack: (error as Error).stack
@@ -197,7 +189,7 @@ class ReasoningService extends BaseReasoningService {
 
     if (!apiKey) {
       const errorMsg = `${provider.charAt(0).toUpperCase() + provider.slice(1)} API key not configured`;
-      debugLogger.logReasoning(`${provider.toUpperCase()}_KEY_MISSING`, {
+      logger.logReasoning(`${provider.toUpperCase()}_KEY_MISSING`, {
         provider,
         error: errorMsg
       });
@@ -215,7 +207,7 @@ class ReasoningService extends BaseReasoningService {
   ): Promise<string> {
     const provider = getModelProvider(model);
 
-    debugLogger.logReasoning("PROVIDER_SELECTION", {
+    logger.logReasoning("PROVIDER_SELECTION", {
       model,
       provider,
       agentName,
@@ -227,9 +219,8 @@ class ReasoningService extends BaseReasoningService {
     try {
       let result: string;
       const startTime = Date.now();
-      console.log(`[TIMING:AI] ReasoningService started (provider: ${provider}, model: ${model})`);
-
-      debugLogger.logReasoning("ROUTING_TO_PROVIDER", {
+      
+      logger.logReasoning("ROUTING_TO_PROVIDER", {
         provider,
         model
       });
@@ -253,9 +244,8 @@ class ReasoningService extends BaseReasoningService {
       }
 
       const processingTime = Date.now() - startTime;
-      console.log(`[TIMING:AI] ✅ ReasoningService completed in ${processingTime}ms`);
-
-      debugLogger.logReasoning("PROVIDER_SUCCESS", {
+      
+      logger.logReasoning("PROVIDER_SUCCESS", {
         provider,
         model,
         processingTimeMs: processingTime,
@@ -265,7 +255,7 @@ class ReasoningService extends BaseReasoningService {
 
       return result;
     } catch (error) {
-      debugLogger.logReasoning("PROVIDER_ERROR", {
+      logger.logReasoning("PROVIDER_ERROR", {
         provider,
         model,
         error: (error as Error).message,
@@ -282,7 +272,7 @@ class ReasoningService extends BaseReasoningService {
     agentName: string | null = null,
     config: ReasoningConfig = {}
   ): Promise<string> {
-    debugLogger.logReasoning("OPENAI_START", {
+    logger.logReasoning("OPENAI_START", {
       model,
       agentName,
       hasApiKey: false // Will update after fetching
@@ -294,7 +284,7 @@ class ReasoningService extends BaseReasoningService {
 
     const apiKey = await this.getApiKey('openai');
     
-    debugLogger.logReasoning("OPENAI_API_KEY", {
+    logger.logReasoning("OPENAI_API_KEY", {
       hasApiKey: !!apiKey,
       keyLength: apiKey?.length || 0
     });
@@ -318,7 +308,7 @@ class ReasoningService extends BaseReasoningService {
       const openAiBase = this.getConfiguredOpenAIBase();
       const endpointCandidates = this.getOpenAIEndpointCandidates(openAiBase);
 
-      debugLogger.logReasoning("OPENAI_ENDPOINTS", {
+      logger.logReasoning("OPENAI_ENDPOINTS", {
         base: openAiBase,
         candidates: endpointCandidates.map((candidate) => candidate.url),
         preference: this.getStoredOpenAiPreference(openAiBase) || null,
@@ -352,7 +342,7 @@ class ReasoningService extends BaseReasoningService {
                 }
               }
 
-              debugLogger.logReasoning("OPENAI_REQUEST", {
+              logger.logReasoning("OPENAI_REQUEST", {
                 endpoint,
                 type,
                 model: requestBody.model,
@@ -389,7 +379,7 @@ class ReasoningService extends BaseReasoningService {
                 if (isUnsupportedEndpoint || isBadRequestOnResponses) {
                   lastError = new Error(errorMessage);
                   this.rememberOpenAiPreference(openAiBase, 'chat');
-                  debugLogger.logReasoning('OPENAI_ENDPOINT_FALLBACK', {
+                  logger.logReasoning('OPENAI_ENDPOINT_FALLBACK', {
                     attemptedEndpoint: endpoint,
                     error: errorMessage,
                     reason: isBadRequestOnResponses ? '400 on Responses API' : 'Unsupported endpoint'
@@ -405,7 +395,7 @@ class ReasoningService extends BaseReasoningService {
             } catch (error) {
               lastError = error as Error;
               if (type === 'responses') {
-                debugLogger.logReasoning('OPENAI_ENDPOINT_FALLBACK', {
+                logger.logReasoning('OPENAI_ENDPOINT_FALLBACK', {
                   attemptedEndpoint: endpoint,
                   error: (error as Error).message,
                 });
@@ -428,7 +418,7 @@ class ReasoningService extends BaseReasoningService {
       const isChatCompletions = Array.isArray(response?.choices);
       
       // Log the raw response for debugging
-      debugLogger.logReasoning("OPENAI_RAW_RESPONSE", {
+      logger.logReasoning("OPENAI_RAW_RESPONSE", {
         model,
         format: isResponsesApi ? "responses" : isChatCompletions ? "chat_completions" : "unknown",
         hasOutput: isResponsesApi,
@@ -488,7 +478,7 @@ class ReasoningService extends BaseReasoningService {
         }
       }
       
-      debugLogger.logReasoning("OPENAI_RESPONSE", {
+      logger.logReasoning("OPENAI_RESPONSE", {
         model,
         responseLength: responseText.length,
         tokensUsed: response.usage?.total_tokens || 0,
@@ -498,7 +488,7 @@ class ReasoningService extends BaseReasoningService {
       
       // If we got an empty response, return the original text as fallback
       if (!responseText) {
-        debugLogger.logReasoning("OPENAI_EMPTY_RESPONSE_FALLBACK", {
+        logger.logReasoning("OPENAI_EMPTY_RESPONSE_FALLBACK", {
           model,
           originalTextLength: text.length,
           reason: "Empty response from API"
@@ -508,7 +498,7 @@ class ReasoningService extends BaseReasoningService {
       
       return responseText;
     } catch (error) {
-      debugLogger.logReasoning("OPENAI_ERROR", {
+      logger.logReasoning("OPENAI_ERROR", {
         model,
         error: (error as Error).message,
         errorType: (error as Error).name
@@ -525,7 +515,7 @@ class ReasoningService extends BaseReasoningService {
     agentName: string | null = null,
     config: ReasoningConfig = {}
   ): Promise<string> {
-    debugLogger.logReasoning("ANTHROPIC_START", {
+    logger.logReasoning("ANTHROPIC_START", {
       model,
       agentName,
       environment: typeof window !== 'undefined' ? 'browser' : 'node'
@@ -535,7 +525,7 @@ class ReasoningService extends BaseReasoningService {
     if (typeof window !== 'undefined' && window.electronAPI) {
       const startTime = Date.now();
       
-      debugLogger.logReasoning("ANTHROPIC_IPC_CALL", {
+      logger.logReasoning("ANTHROPIC_IPC_CALL", {
         model,
         textLength: text.length
       });
@@ -545,14 +535,14 @@ class ReasoningService extends BaseReasoningService {
       const processingTime = Date.now() - startTime;
       
       if (result.success) {
-        debugLogger.logReasoning("ANTHROPIC_SUCCESS", {
+        logger.logReasoning("ANTHROPIC_SUCCESS", {
           model,
           processingTimeMs: processingTime,
           resultLength: result.text.length
         });
         return result.text;
       } else {
-        debugLogger.logReasoning("ANTHROPIC_ERROR", {
+        logger.logReasoning("ANTHROPIC_ERROR", {
           model,
           processingTimeMs: processingTime,
           error: result.error
@@ -560,7 +550,7 @@ class ReasoningService extends BaseReasoningService {
         throw new Error(result.error);
       }
     } else {
-      debugLogger.logReasoning("ANTHROPIC_UNAVAILABLE", {
+      logger.logReasoning("ANTHROPIC_UNAVAILABLE", {
         reason: 'Not in Electron environment'
       });
       throw new Error('Anthropic reasoning is not available in this environment');
@@ -573,7 +563,7 @@ class ReasoningService extends BaseReasoningService {
     agentName: string | null = null,
     config: ReasoningConfig = {}
   ): Promise<string> {
-    debugLogger.logReasoning("LOCAL_START", {
+    logger.logReasoning("LOCAL_START", {
       model,
       agentName,
       environment: typeof window !== 'undefined' ? 'browser' : 'node'
@@ -584,7 +574,7 @@ class ReasoningService extends BaseReasoningService {
     if (typeof window !== 'undefined' && window.electronAPI) {
       const startTime = Date.now();
       
-      debugLogger.logReasoning("LOCAL_IPC_CALL", {
+      logger.logReasoning("LOCAL_IPC_CALL", {
         model,
         textLength: text.length
       });
@@ -594,14 +584,14 @@ class ReasoningService extends BaseReasoningService {
       const processingTime = Date.now() - startTime;
       
       if (result.success) {
-        debugLogger.logReasoning("LOCAL_SUCCESS", {
+        logger.logReasoning("LOCAL_SUCCESS", {
           model,
           processingTimeMs: processingTime,
           resultLength: result.text.length
         });
         return result.text;
       } else {
-        debugLogger.logReasoning("LOCAL_ERROR", {
+        logger.logReasoning("LOCAL_ERROR", {
           model,
           processingTimeMs: processingTime,
           error: result.error
@@ -609,7 +599,7 @@ class ReasoningService extends BaseReasoningService {
         throw new Error(result.error);
       }
     } else {
-      debugLogger.logReasoning("LOCAL_UNAVAILABLE", {
+      logger.logReasoning("LOCAL_UNAVAILABLE", {
         reason: 'Not in Electron environment'
       });
       throw new Error('Local reasoning is not available in this environment');
@@ -622,7 +612,7 @@ class ReasoningService extends BaseReasoningService {
     agentName: string | null = null,
     config: ReasoningConfig = {}
   ): Promise<string> {
-    debugLogger.logReasoning("GEMINI_START", {
+    logger.logReasoning("GEMINI_START", {
       model,
       agentName,
       hasApiKey: false
@@ -634,7 +624,7 @@ class ReasoningService extends BaseReasoningService {
 
     const apiKey = await this.getApiKey('gemini');
     
-    debugLogger.logReasoning("GEMINI_API_KEY", {
+    logger.logReasoning("GEMINI_API_KEY", {
       hasApiKey: !!apiKey,
       keyLength: apiKey?.length || 0
     });
@@ -669,7 +659,7 @@ class ReasoningService extends BaseReasoningService {
       try {
         response = await withRetry(
           async () => {
-            debugLogger.logReasoning("GEMINI_REQUEST", {
+            logger.logReasoning("GEMINI_REQUEST", {
               endpoint: `${API_ENDPOINTS.GEMINI}/models/${model}:generateContent`,
               model,
               hasApiKey: !!apiKey,
@@ -698,7 +688,7 @@ class ReasoningService extends BaseReasoningService {
                 errorData = { error: errorText || res.statusText };
               }
               
-              debugLogger.logReasoning("GEMINI_API_ERROR_DETAIL", {
+              logger.logReasoning("GEMINI_API_ERROR_DETAIL", {
                 status: res.status,
                 statusText: res.statusText,
                 error: errorData,
@@ -712,7 +702,7 @@ class ReasoningService extends BaseReasoningService {
 
             const jsonResponse = await res.json();
             
-            debugLogger.logReasoning("GEMINI_RAW_RESPONSE", {
+            logger.logReasoning("GEMINI_RAW_RESPONSE", {
               hasResponse: !!jsonResponse,
               responseKeys: jsonResponse ? Object.keys(jsonResponse) : [],
               hasCandidates: !!jsonResponse?.candidates,
@@ -725,7 +715,7 @@ class ReasoningService extends BaseReasoningService {
           createApiRetryStrategy("Gemini")
         );
       } catch (fetchError) {
-        debugLogger.logReasoning("GEMINI_FETCH_ERROR", {
+        logger.logReasoning("GEMINI_FETCH_ERROR", {
           error: (fetchError as Error).message,
           stack: (fetchError as Error).stack
         });
@@ -734,7 +724,7 @@ class ReasoningService extends BaseReasoningService {
 
       // Check if response has the expected structure
       if (!response.candidates || !response.candidates[0]) {
-        debugLogger.logReasoning("GEMINI_RESPONSE_ERROR", {
+        logger.logReasoning("GEMINI_RESPONSE_ERROR", {
           model,
           response: JSON.stringify(response).substring(0, 500),
           hasCandidate: !!response.candidates,
@@ -746,7 +736,7 @@ class ReasoningService extends BaseReasoningService {
       // Check if the response has actual content
       const candidate = response.candidates[0];
       if (!candidate.content?.parts?.[0]?.text) {
-        debugLogger.logReasoning("GEMINI_EMPTY_RESPONSE", {
+        logger.logReasoning("GEMINI_EMPTY_RESPONSE", {
           model,
           finishReason: candidate.finishReason,
           hasContent: !!candidate.content,
@@ -763,7 +753,7 @@ class ReasoningService extends BaseReasoningService {
       
       const responseText = candidate.content.parts[0].text.trim();
       
-      debugLogger.logReasoning("GEMINI_RESPONSE", {
+      logger.logReasoning("GEMINI_RESPONSE", {
         model,
         responseLength: responseText.length,
         tokensUsed: response.usageMetadata?.totalTokenCount || 0,
@@ -772,7 +762,7 @@ class ReasoningService extends BaseReasoningService {
       
       return responseText;
     } catch (error) {
-      debugLogger.logReasoning("GEMINI_ERROR", {
+      logger.logReasoning("GEMINI_ERROR", {
         model,
         error: (error as Error).message,
         errorType: (error as Error).name
@@ -791,7 +781,7 @@ class ReasoningService extends BaseReasoningService {
       const geminiKey = await window.electronAPI?.getGeminiKey?.();
       const localAvailable = await window.electronAPI?.checkLocalReasoningAvailable?.();
       
-      debugLogger.logReasoning("API_KEY_CHECK", {
+      logger.logReasoning("API_KEY_CHECK", {
         hasOpenAI: !!openaiKey,
         hasAnthropic: !!anthropicKey,
         hasGemini: !!geminiKey,
@@ -804,7 +794,7 @@ class ReasoningService extends BaseReasoningService {
       
       return !!(openaiKey || anthropicKey || geminiKey || localAvailable);
     } catch (error) {
-      debugLogger.logReasoning("API_KEY_CHECK_ERROR", {
+      logger.logReasoning("API_KEY_CHECK_ERROR", {
         error: (error as Error).message,
         stack: (error as Error).stack,
         name: (error as Error).name

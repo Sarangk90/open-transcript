@@ -165,11 +165,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   llamaCppInstall: () => ipcRenderer.invoke("llama-cpp-install"),
   llamaCppUninstall: () => ipcRenderer.invoke("llama-cpp-uninstall"),
   
-  // Debug logging for reasoning pipeline
+  // Logging (new centralized logger)
+  getLogLevel: () => ipcRenderer.invoke("get-log-level"),
+  log: (entry) => ipcRenderer.invoke("app-log", entry),
+  
+  // Legacy debug logging for reasoning pipeline (kept for backward compatibility)
   logReasoning: (stage, details) =>
     ipcRenderer.invoke("log-reasoning", stage, details),
-
-  // Log timing messages to terminal
   logToTerminal: (message) =>
     ipcRenderer.invoke("log-to-terminal", message),
 
