@@ -53,6 +53,8 @@ export default function SettingsPage({
     fallbackWhisperModel,
     preferredLanguage,
     cloudTranscriptionBaseUrl,
+    cloudTranscriptionApiKey,
+    cloudTranscriptionModel,
     cloudReasoningBaseUrl,
     useReasoningModel,
     reasoningModel,
@@ -68,6 +70,8 @@ export default function SettingsPage({
     setFallbackWhisperModel,
     setPreferredLanguage,
     setCloudTranscriptionBaseUrl,
+    setCloudTranscriptionApiKey,
+    setCloudTranscriptionModel,
     setCloudReasoningBaseUrl,
     setUseReasoningModel,
     setReasoningModel,
@@ -284,15 +288,18 @@ export default function SettingsPage({
     const normalizedReasoningBase = (cloudReasoningBaseUrl || '').trim();
     setCloudReasoningBaseUrl(normalizedReasoningBase);
 
+    // Save the provider FIRST so ReasoningService knows to use localStorage
+    localStorage.setItem("reasoningProvider", localReasoningProvider);
+
     // Update reasoning settings
-    updateReasoningSettings({ 
-      useReasoningModel, 
+    updateReasoningSettings({
+      useReasoningModel,
       reasoningModel,
       cloudReasoningBaseUrl: normalizedReasoningBase
     });
-    
+
     // Save API keys to backend based on provider
-    if (localReasoningProvider === "openai" && openaiApiKey) {
+    if ((localReasoningProvider === "openai" || localReasoningProvider === "custom") && openaiApiKey) {
       await window.electronAPI?.saveOpenAIKey(openaiApiKey);
     }
     if (localReasoningProvider === "anthropic" && anthropicApiKey) {
@@ -301,18 +308,26 @@ export default function SettingsPage({
     if (localReasoningProvider === "gemini" && geminiApiKey) {
       await window.electronAPI?.saveGeminiKey(geminiApiKey);
     }
-    
+
     updateApiKeys({
-      ...(localReasoningProvider === "openai" &&
+      ...((localReasoningProvider === "openai" || localReasoningProvider === "custom") &&
         openaiApiKey.trim() && { openaiApiKey }),
       ...(localReasoningProvider === "anthropic" &&
         anthropicApiKey.trim() && { anthropicApiKey }),
       ...(localReasoningProvider === "gemini" &&
         geminiApiKey.trim() && { geminiApiKey }),
     });
-    
-    // Save the provider separately since it's computed from the model
-    localStorage.setItem("reasoningProvider", localReasoningProvider);
+
+    // Log what we saved for debugging
+    console.log('[DEBUG] Saved reasoning settings:', {
+      provider: localReasoningProvider,
+      model: reasoningModel,
+      hasOpenAIKey: !!openaiApiKey,
+      openAIKeyLength: openaiApiKey?.length || 0,
+      openAIKeyFirst10: openaiApiKey ? openaiApiKey.substring(0, 10) : 'NONE',
+      localStorageProvider: localStorage.getItem('reasoningProvider'),
+      localStorageKey: localStorage.getItem('openaiApiKey')?.substring(0, 10) || 'NONE'
+    });
 
     const providerLabel =
       localReasoningProvider === 'custom'
@@ -975,7 +990,11 @@ export default function SettingsPage({
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => setCloudTranscriptionBaseUrl(API_ENDPOINTS.TRANSCRIPTION_BASE)}
+                      onClick={() => {
+                        setCloudTranscriptionBaseUrl(API_ENDPOINTS.TRANSCRIPTION_BASE);
+                        setCloudTranscriptionApiKey("");
+                        setCloudTranscriptionModel("");
+                      }}
                     >
                       Reset to Default
                     </Button>
@@ -985,6 +1004,44 @@ export default function SettingsPage({
                     <code className="ml-1">{API_ENDPOINTS.TRANSCRIPTION_BASE}</code>.
                   </p>
                 </div>
+                
+                {/* Show custom API key and model fields when using a non-OpenAI endpoint */}
+                {cloudTranscriptionBaseUrl && !cloudTranscriptionBaseUrl.includes("api.openai.com") && (
+                  <div className="space-y-4 pt-4 border-t border-blue-200">
+                    <p className="text-sm text-blue-800 font-medium">
+                      Custom Endpoint Settings
+                    </p>
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-blue-900">
+                        API Key for Custom Endpoint
+                      </label>
+                      <Input
+                        type="password"
+                        value={cloudTranscriptionApiKey}
+                        onChange={(event) => setCloudTranscriptionApiKey(event.target.value)}
+                        placeholder="Enter your API key for this endpoint"
+                        className="text-sm"
+                      />
+                      <p className="text-xs text-blue-700">
+                        This API key will be used instead of the OpenAI key for custom endpoints (e.g., Groq, Together AI).
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-blue-900">
+                        Transcription Model
+                      </label>
+                      <Input
+                        value={cloudTranscriptionModel}
+                        onChange={(event) => setCloudTranscriptionModel(event.target.value)}
+                        placeholder="whisper-large-v3"
+                        className="text-sm"
+                      />
+                      <p className="text-xs text-blue-700">
+                        Model name for transcription. Common options: <code>whisper-large-v3</code>, <code>whisper-large-v3-turbo</code>, <code>distil-whisper-large-v3-en</code>
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1016,6 +1073,8 @@ export default function SettingsPage({
           <Button
             onClick={() => {
               const normalizedTranscriptionBase = (cloudTranscriptionBaseUrl || '').trim();
+              const isCustomEndpoint = normalizedTranscriptionBase && !normalizedTranscriptionBase.includes("api.openai.com");
+              
               setCloudTranscriptionBaseUrl(normalizedTranscriptionBase);
 
               updateTranscriptionSettings({
@@ -1023,10 +1082,17 @@ export default function SettingsPage({
                 whisperModel,
                 preferredLanguage,
                 cloudTranscriptionBaseUrl: normalizedTranscriptionBase,
+                cloudTranscriptionApiKey: isCustomEndpoint ? cloudTranscriptionApiKey : "",
+                cloudTranscriptionModel: isCustomEndpoint ? cloudTranscriptionModel : "",
               });
 
               if (!useLocalWhisper && openaiApiKey.trim()) {
                 updateApiKeys({ openaiApiKey });
+              }
+              
+              // Clear audioManager cache to pick up new settings
+              if (typeof window !== 'undefined' && (window as unknown as { audioManager?: { clearCache?: () => void } }).audioManager?.clearCache) {
+                (window as unknown as { audioManager: { clearCache: () => void } }).audioManager.clearCache();
               }
 
               const descriptionParts = [
@@ -1037,6 +1103,9 @@ export default function SettingsPage({
               if (!useLocalWhisper) {
                 const baseLabel = normalizedTranscriptionBase || API_ENDPOINTS.TRANSCRIPTION_BASE;
                 descriptionParts.push(`Endpoint: ${baseLabel}.`);
+                if (isCustomEndpoint && cloudTranscriptionModel) {
+                  descriptionParts.push(`Model: ${cloudTranscriptionModel}.`);
+                }
               }
 
               showAlertDialog({

@@ -43,6 +43,12 @@ class AudioManager {
     this.onTranscriptionComplete = onTranscriptionComplete;
   }
 
+  clearCache() {
+    // Clear cached values when settings change
+    this.cachedApiKey = null;
+    this.cachedTranscriptionEndpoint = null;
+  }
+
   async startRecording() {
     try {
       if (this.isRecording) {
@@ -264,6 +270,23 @@ class AudioManager {
       return this.cachedApiKey;
     }
 
+    // Check if using a custom transcription endpoint (e.g., Groq)
+    const customBaseUrl = typeof localStorage !== "undefined"
+      ? (localStorage.getItem("cloudTranscriptionBaseUrl") || "").trim()
+      : "";
+    const isCustomEndpoint = customBaseUrl && 
+      !customBaseUrl.includes("api.openai.com");
+
+    // For custom endpoints, prefer the transcription-specific API key
+    if (isCustomEndpoint) {
+      const transcriptionApiKey = localStorage.getItem("cloudTranscriptionApiKey");
+      if (transcriptionApiKey && transcriptionApiKey.trim()) {
+        this.cachedApiKey = transcriptionApiKey.trim();
+        return this.cachedApiKey;
+      }
+    }
+
+    // Fall back to OpenAI key
     let apiKey = await window.electronAPI.getOpenAIKey();
     if (
       !apiKey ||
@@ -278,9 +301,10 @@ class AudioManager {
       apiKey.trim() === "" ||
       apiKey === "your_openai_api_key_here"
     ) {
-      throw new Error(
-        "OpenAI API key not found. Please set your API key in the .env file or Control Panel."
-      );
+      const errorMsg = isCustomEndpoint
+        ? "API key not found. Please set your API key for the custom transcription endpoint in Settings."
+        : "OpenAI API key not found. Please set your API key in the .env file or Control Panel.";
+      throw new Error(errorMsg);
     }
 
     this.cachedApiKey = apiKey;
@@ -589,9 +613,15 @@ class AudioManager {
       const prepTime = Date.now() - prepStartTime;
       console.log(`[TIMING]   - API key + audio optimization: ${prepTime}ms (optimized: ${shouldOptimize})`);
 
+      // Get the transcription model - use custom model for custom endpoints, default to whisper-1 for OpenAI
+      const customBaseUrl = (localStorage.getItem("cloudTranscriptionBaseUrl") || "").trim();
+      const isCustomEndpoint = customBaseUrl && !customBaseUrl.includes("api.openai.com");
+      const defaultModel = isCustomEndpoint ? "whisper-large-v3" : "whisper-1";
+      const transcriptionModel = localStorage.getItem("cloudTranscriptionModel") || defaultModel;
+
       const formData = new FormData();
       formData.append("file", optimizedAudio, "audio.wav");
-      formData.append("model", "whisper-1");
+      formData.append("model", transcriptionModel);
 
       if (language && language !== "auto") {
         formData.append("language", language);

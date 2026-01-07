@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useLocalStorage } from "./useLocalStorage";
 import { getModelProvider } from "../utils/languages";
 import { API_ENDPOINTS } from "../config/constants";
@@ -11,6 +11,8 @@ export interface TranscriptionSettings {
   fallbackWhisperModel: string;
   preferredLanguage: string;
   cloudTranscriptionBaseUrl?: string;
+  cloudTranscriptionApiKey?: string;
+  cloudTranscriptionModel?: string;
 }
 
 export interface ReasoningSettings {
@@ -94,6 +96,24 @@ export function useSettings() {
     }
   );
 
+  const [cloudTranscriptionApiKey, setCloudTranscriptionApiKey] = useLocalStorage(
+    "cloudTranscriptionApiKey",
+    "",
+    {
+      serialize: String,
+      deserialize: String,
+    }
+  );
+
+  const [cloudTranscriptionModel, setCloudTranscriptionModel] = useLocalStorage(
+    "cloudTranscriptionModel",
+    "",
+    {
+      serialize: String,
+      deserialize: String,
+    }
+  );
+
   const [cloudReasoningBaseUrl, setCloudReasoningBaseUrl] = useLocalStorage(
     "cloudReasoningBaseUrl",
     API_ENDPOINTS.OPENAI_BASE,
@@ -152,8 +172,11 @@ export function useSettings() {
     deserialize: String,
   });
 
-  // Computed values
-  const reasoningProvider = getModelProvider(reasoningModel);
+  // Computed values - memoized to avoid recalculation on every render
+  const reasoningProvider = useMemo(
+    () => getModelProvider(reasoningModel),
+    [reasoningModel]
+  );
 
   // Batch operations
   const updateTranscriptionSettings = useCallback(
@@ -172,6 +195,10 @@ export function useSettings() {
         setPreferredLanguage(settings.preferredLanguage);
       if (settings.cloudTranscriptionBaseUrl !== undefined)
         setCloudTranscriptionBaseUrl(settings.cloudTranscriptionBaseUrl);
+      if (settings.cloudTranscriptionApiKey !== undefined)
+        setCloudTranscriptionApiKey(settings.cloudTranscriptionApiKey);
+      if (settings.cloudTranscriptionModel !== undefined)
+        setCloudTranscriptionModel(settings.cloudTranscriptionModel);
     },
     [
       setUseLocalWhisper,
@@ -181,6 +208,8 @@ export function useSettings() {
       setFallbackWhisperModel,
       setPreferredLanguage,
       setCloudTranscriptionBaseUrl,
+      setCloudTranscriptionApiKey,
+      setCloudTranscriptionModel,
     ]
   );
 
@@ -216,6 +245,8 @@ export function useSettings() {
     fallbackWhisperModel,
     preferredLanguage,
     cloudTranscriptionBaseUrl,
+    cloudTranscriptionApiKey,
+    cloudTranscriptionModel,
     cloudReasoningBaseUrl,
     useReasoningModel,
     reasoningModel,
@@ -231,6 +262,8 @@ export function useSettings() {
     setFallbackWhisperModel,
     setPreferredLanguage,
     setCloudTranscriptionBaseUrl,
+    setCloudTranscriptionApiKey,
+    setCloudTranscriptionModel,
     setCloudReasoningBaseUrl,
     setUseReasoningModel,
     setReasoningModel,
