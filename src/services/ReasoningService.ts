@@ -136,30 +136,53 @@ class ReasoningService extends BaseReasoningService {
   }
 
   private async getApiKey(provider: 'openai' | 'anthropic' | 'gemini'): Promise<string> {
-    let apiKey = this.apiKeyCache.get(provider);
-    
+    // Check if we're using a custom provider - if so, skip cache and prefer localStorage
+    const reasoningProvider = typeof window !== 'undefined' ? localStorage.getItem('reasoningProvider') : null;
+
+    // For custom providers, always fetch fresh from localStorage (don't use cache)
+    let apiKey = (reasoningProvider === 'custom' && provider === 'openai')
+      ? null
+      : this.apiKeyCache.get(provider);
+
     debugLogger.logReasoning(`${provider.toUpperCase()}_KEY_RETRIEVAL`, {
       provider,
       fromCache: !!apiKey,
-      cacheSize: this.apiKeyCache.size || 0
+      cacheSize: this.apiKeyCache.size || 0,
+      isCustomProvider: reasoningProvider === 'custom'
     });
-    
+
     if (!apiKey) {
       try {
-        const keyGetters = {
-          openai: () => window.electronAPI.getOpenAIKey(),
-          anthropic: () => window.electronAPI.getAnthropicKey(),
-          gemini: () => window.electronAPI.getGeminiKey(),
-        };
-        apiKey = await keyGetters[provider]();
-        
-        debugLogger.logReasoning(`${provider.toUpperCase()}_KEY_FETCHED`, {
-          provider,
-          hasKey: !!apiKey,
-          keyLength: apiKey?.length || 0,
-          keyPreview: apiKey ? `${apiKey.substring(0, 8)}...` : 'none'
-        });
-        
+        if (reasoningProvider === 'custom' && provider === 'openai') {
+          // For custom providers, check localStorage first
+          const localStorageKey = typeof window !== 'undefined' ? localStorage.getItem('openaiApiKey') : null;
+          if (localStorageKey) {
+            apiKey = localStorageKey;
+            debugLogger.logReasoning('OPENAI_KEY_FROM_LOCALSTORAGE', {
+              hasKey: !!apiKey,
+              keyLength: apiKey?.length || 0,
+              keyPreview: apiKey ? `${apiKey.substring(0, 8)}...` : 'none'
+            });
+          }
+        }
+
+        // If not found in localStorage, try backend
+        if (!apiKey) {
+          const keyGetters = {
+            openai: () => window.electronAPI.getOpenAIKey(),
+            anthropic: () => window.electronAPI.getAnthropicKey(),
+            gemini: () => window.electronAPI.getGeminiKey(),
+          };
+          apiKey = await keyGetters[provider]();
+
+          debugLogger.logReasoning(`${provider.toUpperCase()}_KEY_FETCHED`, {
+            provider,
+            hasKey: !!apiKey,
+            keyLength: apiKey?.length || 0,
+            keyPreview: apiKey ? `${apiKey.substring(0, 8)}...` : 'none'
+          });
+        }
+
         if (apiKey) {
           this.apiKeyCache.set(provider, apiKey);
         }
@@ -171,7 +194,7 @@ class ReasoningService extends BaseReasoningService {
         });
       }
     }
-    
+
     if (!apiKey) {
       const errorMsg = `${provider.charAt(0).toUpperCase() + provider.slice(1)} API key not configured`;
       debugLogger.logReasoning(`${provider.toUpperCase()}_KEY_MISSING`, {
@@ -180,7 +203,7 @@ class ReasoningService extends BaseReasoningService {
       });
       throw new Error(errorMsg);
     }
-    
+
     return apiKey;
   }
 
@@ -213,6 +236,7 @@ class ReasoningService extends BaseReasoningService {
 
       switch (provider) {
         case "openai":
+        case "custom":  // Custom endpoints use OpenAI-compatible API
           result = await this.processWithOpenAI(text, model, agentName, config);
           break;
         case "anthropic":
@@ -357,12 +381,18 @@ class ReasoningService extends BaseReasoningService {
                   (res.status === 404 || res.status === 405) &&
                   type === 'responses';
 
-                if (isUnsupportedEndpoint) {
+                // Also treat 400 as unsupported if using Responses API (custom endpoints may not support it)
+                const isBadRequestOnResponses =
+                  res.status === 400 &&
+                  type === 'responses';
+
+                if (isUnsupportedEndpoint || isBadRequestOnResponses) {
                   lastError = new Error(errorMessage);
                   this.rememberOpenAiPreference(openAiBase, 'chat');
                   debugLogger.logReasoning('OPENAI_ENDPOINT_FALLBACK', {
                     attemptedEndpoint: endpoint,
                     error: errorMessage,
+                    reason: isBadRequestOnResponses ? '400 on Responses API' : 'Unsupported endpoint'
                   });
                   continue;
                 }

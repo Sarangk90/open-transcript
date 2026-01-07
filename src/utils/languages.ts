@@ -243,6 +243,15 @@ export const getReasoningModelLabel = (modelId: string): string => {
 };
 
 export const getModelProvider = (modelId: string): string => {
+  // IMPORTANT: Check if user explicitly configured a custom provider
+  // This must be checked FIRST before inferring from model name
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    const explicitProvider = localStorage.getItem('reasoningProvider');
+    if (explicitProvider === 'custom') {
+      return 'custom';
+    }
+  }
+
   const allModels = getAllReasoningModels();
   const model = allModels.find((m) => m.value === modelId);
 
